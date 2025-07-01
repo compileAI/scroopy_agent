@@ -179,10 +179,16 @@ class StructuredScroopyAgent:
             logger.info(f"📰 Step 2c: Generating article schema for {source.name}...")
             article_schema_result = await self._generate_article_schema(source)
             
-            if article_schema_result:
+            # Check both generation success AND validation score
+            if article_schema_result and source.validation_score is not None and source.validation_score >= 80.0:
                 source.status = "completed"
+                logger.info(f"✅ Source completed with validation score: {source.validation_score:.1f}%")
+            elif article_schema_result and source.validation_score is not None:
+                source.status = "failed"
+                logger.warning(f"❌ Source failed due to low validation score: {source.validation_score:.1f}% (required: ≥80%)")
             else:
                 source.status = "failed"
+                logger.error("❌ Source failed - no article schema generated or validation failed")
             
             return source
             
@@ -390,14 +396,14 @@ class StructuredScroopyAgent:
         failed = [s for s in sources if s.status == "failed"]
         
         summary_lines = [
-            f"📊 Processing Summary:",
+            f"�� Processing Summary (Success = Validation Score ≥80%):",
             f"   ✅ Successfully processed: {len(completed)} sources",
             f"   ❌ Failed: {len(failed)} sources",
             ""
         ]
         
         if completed:
-            summary_lines.append("🎉 Successfully Processed Sources:")
+            summary_lines.append("🎉 Successfully Processed Sources (≥80% validation):")
             for source in completed:
                 summary_lines.append(f"   • {source.name} (Score: {source.validation_score:.1f}%)")
                 summary_lines.append(f"     - Link Schema: {source.link_schema.get('baseSelector', 'N/A') if source.link_schema else 'N/A'}")
@@ -405,9 +411,16 @@ class StructuredScroopyAgent:
                 summary_lines.append("")
         
         if failed:
-            summary_lines.append("❌ Failed Sources:")
+            summary_lines.append("❌ Failed Sources (<80% validation or processing error):")
             for source in failed:
-                summary_lines.append(f"   • {source.name} - {source.url}")
+                score_info = f" (Score: {source.validation_score:.1f}%)" if source.validation_score is not None else " (Processing failed)"
+                summary_lines.append(f"   • {source.name}{score_info}")
+                summary_lines.append(f"     URL: {source.url}")
+                if source.validation_score is not None and source.validation_score > 0:
+                    summary_lines.append(f"     Issue: Validation score too low ({source.validation_score:.1f}% < 60%)")
+                else:
+                    summary_lines.append(f"     Issue: Schema generation or extraction failed")
+                summary_lines.append("")
         
         return "\n".join(summary_lines)
 
