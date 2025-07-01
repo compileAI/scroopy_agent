@@ -181,22 +181,75 @@ async def generate_validated_article_schema(base_url: str, sample_urls: List[str
                     print(f"         ❌ [{i}/{len(sample_urls)}] Schema extraction failed: {e}")
                     schema_extractions.append(None)
             
-            # Step 3: OBJECTIVE VALIDATION (replaces unreliable LLM ground truth)
-            print(f"         📊 Step 3: OBJECTIVE VALIDATION - Testing schema on {len(sample_urls)} URLs...")
-            validation_result = await validate_article_schema_objective(schema, sample_urls)
+            # Step 3: LLM Ground Truth Validation
+            print(f"         📊 Step 3: LLM GROUND TRUTH VALIDATION - Testing schema on {len(sample_urls)} URLs...")
             
-            validation_score = validation_result['average_score']
-            success_rate = validation_result['success_rate']
-            successful_extractions = validation_result['successful_extractions']
-            comparisons = validation_result['individual_results']
+            # Generate ground truth for each URL
+            comparisons = []
+            validation_scores = []
             
-            logger.info(f"🎯 Objective validation score: {validation_score:.1f}% (attempt {attempt})")
+            for i, url in enumerate(sample_urls):
+                print(f"         🔍 [{i+1}/{len(sample_urls)}] Comparing against ground truth: {url[:80]}...")
+                
+                try:
+                    # Get ground truth using LLM extraction
+                    ground_truth = await extract_ground_truth_with_retries(url)
+                    
+                    if not ground_truth:
+                        print(f"         ❌ [{i+1}/{len(sample_urls)}] Ground truth extraction failed")
+                        comparisons.append({
+                            'url': url,
+                            'similarity_score': 0,
+                            'success': False,
+                            'error': 'Ground truth extraction failed'
+                        })
+                        validation_scores.append(0)
+                        continue
+                    
+                    # Get schema extraction result
+                    if i < len(schema_extractions) and schema_extractions[i]:
+                        schema_result = schema_extractions[i]
+                        
+                        # Compare schema result vs ground truth
+                        comparison = await compare_article_extractions(schema_result, ground_truth, url)
+                        comparisons.append(comparison)
+                        validation_scores.append(comparison.get('similarity_score', 0))
+                        
+                        score = comparison.get('similarity_score', 0)
+                        print(f"         ✅ [{i+1}/{len(sample_urls)}] Comparison complete - Score: {score:.1f}%")
+                    else:
+                        print(f"         ❌ [{i+1}/{len(sample_urls)}] No schema extraction available")
+                        comparisons.append({
+                            'url': url,
+                            'similarity_score': 0,
+                            'success': False,
+                            'error': 'No schema extraction available'
+                        })
+                        validation_scores.append(0)
+                        
+                except Exception as e:
+                    logger.error(f"Comparison failed for {url}: {e}")
+                    print(f"         ❌ [{i+1}/{len(sample_urls)}] Comparison failed: {e}")
+                    comparisons.append({
+                        'url': url,
+                        'similarity_score': 0,
+                        'success': False,
+                        'error': str(e)
+                    })
+                    validation_scores.append(0)
+            
+            # Calculate overall validation score
+            validation_score = sum(validation_scores) / len(validation_scores) if validation_scores else 0
+            successful_extractions = sum(1 for score in validation_scores if score > 0)
+            success_rate = (successful_extractions / len(validation_scores)) * 100 if validation_scores else 0
+            
+            logger.info(f"🎯 Ground truth validation score: {validation_score:.1f}% (attempt {attempt})")
             logger.info(f"📊 Success rate: {success_rate:.1f}% ({successful_extractions}/{len(sample_urls)} URLs)")
             
-            print(f"         🎯 OBJECTIVE VALIDATION COMPLETE:")
+            print(f"         🎯 GROUND TRUTH VALIDATION COMPLETE:")
             print(f"         📊 Quality Score: {validation_score:.1f}%")
             print(f"         📊 Success Rate: {success_rate:.1f}% ({successful_extractions}/{len(sample_urls)} URLs)")
-            print(f"         📊 This is much more reliable than LLM ground truth comparison!")
+            print(f"         📊 Using LLM ground truth comparison for accurate validation!")
             
             # Step 5: Check if we've reached the target score
             if validation_score >= target_score:
@@ -213,7 +266,7 @@ async def generate_validated_article_schema(base_url: str, sample_urls: List[str
             
             # Compile feedback for next attempt
             if attempt < max_attempts:
-                feedback_context = compile_objective_feedback(comparisons)
+                feedback_context = compile_improvement_feedback(comparisons)
                 logger.info(f"📝 Compiled feedback for next attempt: {feedback_context}")
         
         except Exception as e:
