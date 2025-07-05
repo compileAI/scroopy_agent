@@ -14,17 +14,16 @@ logger = logging.getLogger(__name__)
 
 async def write_crawl_source(source_data: Dict[str, Any]) -> str:
     """
-    Write a validated CrawlSource to Supabase database.
+    Write a CrawlSource to Supabase database.
     
-    Only writes sources that have both validated link and article schemas.
+    Writes sources that have both link and article schemas.
     
     Args:
         source_data: Dictionary containing:
             - source: Basic source info (name, url, description)
-            - link_schema: Validated link extraction schema  
-            - article_schema: Validated article extraction schema
-            - article_schema_score: Validation score (0-100)
-            - sample_urls: List of sample URLs used for validation
+            - link_schema: Link extraction schema  
+            - article_schema: Article extraction schema
+            - sample_urls: List of sample URLs used for testing
             
     Returns:
         JSON string with write operation results
@@ -33,7 +32,7 @@ async def write_crawl_source(source_data: Dict[str, Any]) -> str:
     
     try:
         # Validate input data structure
-        required_fields = ['source', 'link_schema', 'article_schema', 'article_schema_score']
+        required_fields = ['source', 'link_schema', 'article_schema']
         missing_fields = [field for field in required_fields if field not in source_data]
         
         if missing_fields:
@@ -46,7 +45,6 @@ async def write_crawl_source(source_data: Dict[str, Any]) -> str:
         # Check that both schemas are present and valid
         link_schema = source_data.get('link_schema')
         article_schema = source_data.get('article_schema')
-        validation_score = source_data.get('article_schema_score', 0)
         
         if not link_schema or not article_schema:
             return json.dumps({
@@ -54,16 +52,6 @@ async def write_crawl_source(source_data: Dict[str, Any]) -> str:
                 "error": "Both link_schema and article_schema must be present and non-null",
                 "has_link_schema": bool(link_schema),
                 "has_article_schema": bool(article_schema)
-            })
-        
-        # Check validation score meets minimum threshold
-        min_score = 90.0  # Minimum 90% validation score required
-        if validation_score < min_score:
-            return json.dumps({
-                "status": "error",
-                "error": f"Article schema validation score ({validation_score}%) below minimum threshold ({min_score}%)",
-                "validation_score": validation_score,
-                "min_required_score": min_score
             })
         
         # Import Supabase client
@@ -101,7 +89,6 @@ async def write_crawl_source(source_data: Dict[str, Any]) -> str:
             article_schema = article_schema.get('schema', {})
         
         print(f"   💾 Writing CrawlSource: {source_name} ({source_url})")
-        print(f"   📊 Validation Score: {validation_score}%")
         print(f"   🔗 Link Schema Fields: {len(link_schema.get('fields', []))}")
         print(f"   📰 Article Schema Fields: {len(article_schema.get('fields', []))}")
         
@@ -116,56 +103,36 @@ async def write_crawl_source(source_data: Dict[str, Any]) -> str:
             
             print(f"   ⚠️ Source already exists in master_sources: {existing_name} (ID: {existing_id}, method: {scrape_method})")
             
-            # Check if this source exists in crawl_sources and get current validation score
-            crawl_check = supabase.table('crawl_sources').select('source_id,name,article_schema').eq('source_id', existing_id).execute()
+            # Check if this source exists in crawl_sources
+            crawl_check = supabase.table('crawl_sources').select('source_id,name').eq('source_id', existing_id).execute()
             
             if crawl_check.data and len(crawl_check.data) > 0:
-                # Source exists in crawl_sources - check if we should update
-                existing_crawl = crawl_check.data[0]
-                existing_article_schema = existing_crawl.get('article_schema', {})
-                existing_score = existing_article_schema.get('validation_score', 0) if existing_article_schema else 0
+                # Source exists in crawl_sources - update it
+                print(f"   🔄 Updating existing crawl source")
                 
-                if validation_score > existing_score:
-                    print(f"   🔄 Updating existing crawl source (score improved: {existing_score}% → {validation_score}%)")
-                    
-                    # Update existing record in crawl_sources
-                    update_result = supabase.table('crawl_sources').update({
-                        'name': source_name,
-                        'link_schema': link_schema,
-                        'article_schema': article_schema,
-                        'home_url': source_url,
-                        'categories': ["SCRAPE_MODEL", "SCRAPE_BLOG"]
-                    }).eq('source_id', existing_id).execute()
-                    
-                    if update_result.data:
-                        print(f"   ✅ Successfully updated CrawlSource (source_id: {existing_id})")
-                        return json.dumps({
-                            "status": "success",
-                            "operation": "update",
-                            "source_id": existing_id,
-                            "source_name": source_name,
-                            "source_url": source_url,
-                            "validation_score": validation_score,
-                            "previous_score": existing_score,
-                            "message": f"Updated existing source with improved validation score"
-                        })
-                    else:
-                        return json.dumps({
-                            "status": "error",
-                            "error": "Failed to update existing record in crawl_sources",
-                            "source_id": existing_id
-                        })
-                else:
-                    print(f"   ⏭️ Skipping - existing source has equal/better validation score ({existing_score}% >= {validation_score}%)")
+                # Update existing record in crawl_sources
+                update_result = supabase.table('crawl_sources').update({
+                    'name': source_name,
+                    'link_schema': link_schema,
+                    'article_schema': article_schema,
+                    'home_url': source_url
+                }).eq('source_id', existing_id).execute()
+                
+                if update_result.data:
+                    print(f"   ✅ Successfully updated CrawlSource (source_id: {existing_id})")
                     return json.dumps({
-                        "status": "skipped",
-                        "reason": "existing_source_better_score",
-                        "existing_score": existing_score,
-                        "new_score": validation_score,
+                        "status": "success",
+                        "operation": "update",
                         "source_id": existing_id,
                         "source_name": source_name,
                         "source_url": source_url,
-                        "message": f"Source already exists with equal or better validation score"
+                        "message": f"Updated existing source"
+                    })
+                else:
+                    return json.dumps({
+                        "status": "error",
+                        "error": "Failed to update existing record in crawl_sources",
+                        "source_id": existing_id
                     })
             else:
                 # Source exists in master_sources but not in crawl_sources - add to crawl_sources
@@ -176,8 +143,7 @@ async def write_crawl_source(source_data: Dict[str, Any]) -> str:
                     'name': source_name,
                     'link_schema': link_schema,
                     'article_schema': article_schema,
-                    'home_url': source_url,
-                    'categories': ["SCRAPE_MODEL", "SCRAPE_BLOG"]
+                    'home_url': source_url
                 }).execute()
                 
                 if crawl_insert_result.data:
@@ -188,7 +154,6 @@ async def write_crawl_source(source_data: Dict[str, Any]) -> str:
                         "source_id": existing_id,
                         "source_name": source_name,
                         "source_url": source_url,
-                        "validation_score": validation_score,
                         "message": f"Added existing master source to crawl_sources"
                     })
                 else:
@@ -224,8 +189,7 @@ async def write_crawl_source(source_data: Dict[str, Any]) -> str:
                 "link_schema": link_schema,
                 "article_schema": article_schema,
                 "home_url": source_url,
-                "name": source_name,
-                "categories": ["SCRAPE_MODEL", "SCRAPE_BLOG"]
+                "name": source_name
             }).execute()
 
             if crawl_response.data and len(crawl_response.data) > 0:
@@ -237,7 +201,6 @@ async def write_crawl_source(source_data: Dict[str, Any]) -> str:
                     "source_id": source_id,
                     "source_name": source_name,
                     "source_url": source_url,
-                    "validation_score": validation_score,
                     "message": f"Successfully added new CrawlSource"
                 })
             else:
