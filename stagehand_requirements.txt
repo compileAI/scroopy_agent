@@ -1,0 +1,26 @@
+# Stagehand Production Requirements
+# Core dependencies for production article extraction
+
+# Stagehand - the main web automation framework
+stagehand>=0.1.0
+
+# Supabase - database integration
+supabase>=2.3.0
+
+# Environment and configuration
+python-dotenv>=1.0.0
+
+# Date parsing for article extraction
+dateparser>=1.2.0
+
+# Data validation and serialization
+pydantic>=2.0.0
+
+# Async file operations
+aiofiles>=23.0.0
+
+# HTTP URL validation
+pydantic[email]>=2.0.0
+
+# Optional: For enhanced logging (uncomment if needed)
+# structlog>=23.0.0 
