@@ -1,13 +1,12 @@
-import asyncio, os, sys, json, aiofiles
-from typing import Optional, Dict, Any
+import asyncio, os, sys, json, aiofiles, hashlib
+from typing import Optional, Dict, Any, List
 from datetime import date
 from dotenv import load_dotenv; load_dotenv()
 
-from pydantic import BaseModel, Field, field_validator, HttpUrl
+from pydantic import BaseModel, Field, field_validator, HttpUrl, ValidationError
 import dateparser
 
 from stagehand import Stagehand, StagehandConfig
-
 
 # ---------- 1️⃣  small schemas ----------------------------------------------
 class LinkList(BaseModel):
@@ -37,26 +36,20 @@ if not API_KEY:
 
 CFG = StagehandConfig(
     env="LOCAL",
-    model_name="gemini/gemini-2.0-flash",
-    enable_caching=True,
-    cache_dir="stagehand-cache",
+    model_name="gemini/gemini-2.0-flash"
 )
 
-# ---------- 3️⃣  logic -------------------------------------------------------
-async def extract_article(sh: Stagehand, url: str) -> Article:
-    await sh.page.goto(url, timeout=45_000)
-    rec: Article | dict = await sh.page.extract(
-        instruction=(
-            "Extract the article title, author, ISO publication date "
-            "(YYYY-MM-DD) and every body paragraph as an array named content. "
-            "Ignore ads, nav, footer, sidebar."
-        ),
-        schema=Article,
-    )
-    return rec if isinstance(rec, Article) else Article(**rec)
+# ---------- 3️⃣  Enhanced cache utilities -----------------------------------
+def url_hash(url: str) -> str:
+    """Create a clean hash for URL-based cache keys"""
+    return hashlib.md5(url.encode()).hexdigest()[:12]
 
-# Get the cached value (None if it doesn't exist)
-async def get_cache(key: str) -> Optional[Dict[str, Any]]:
+def content_hash(content: str) -> str:
+    """Create a hash of DOM content to detect changes"""
+    return hashlib.md5(content.encode()).hexdigest()[:16]
+
+async def get_cache(key: str) -> Optional[Any]:
+    """Get cached value for a key, returns None if not found"""
     try:
         async with aiofiles.open("cache.json", 'r') as f:
             cache_content = await f.read()
@@ -65,8 +58,8 @@ async def get_cache(key: str) -> Optional[Dict[str, Any]]:
     except (FileNotFoundError, json.JSONDecodeError):
         return None
 
-# Set the cache value
-async def set_cache(key: str, value: Dict[str, Any]) -> None:
+async def set_cache(key: str, value: Any) -> None:
+    """Set a cached value for a key"""
     try:
         async with aiofiles.open("cache.json", 'r') as f:
             cache_content = await f.read()
@@ -77,60 +70,296 @@ async def set_cache(key: str, value: Dict[str, Any]) -> None:
     parsed[key] = value
     
     async with aiofiles.open("cache.json", 'w') as f:
-        await f.write(json.dumps(parsed))
+        await f.write(json.dumps(parsed, default=str, indent=2))
 
-# Check the cache, get the action, and run it
-# If self_heal is true, we'll attempt to self-heal if the action fails
-async def act_with_cache(page, key: str, prompt: str, self_heal: bool = False):
+async def clear_cache_key(key: str) -> None:
+    """Remove a specific key from cache"""
     try:
-        cache_exists = await get_cache(key)
+        async with aiofiles.open("cache.json", 'r') as f:
+            cache_content = await f.read()
+            parsed = json.loads(cache_content)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return  # Nothing to clear
+    
+    if key in parsed:
+        del parsed[key]
+        async with aiofiles.open("cache.json", 'w') as f:
+            await f.write(json.dumps(parsed, default=str, indent=2))
 
-        if cache_exists:
-            # Get the cached action
-            action = await get_cache(prompt)
-        else:
-            # Get the observe result (the action)
-            actions = await page.observe(prompt)
-            action = actions[0]
-
-            # Cache the action
-            await set_cache(prompt, action)
-
-        # Run the action (no LLM inference)
-        await page.act(action)
+# ---------- 4️⃣  DOM caching and change detection ---------------------------
+async def get_dom_content(page) -> str:
+    """Extract the main content area of the page for change detection"""
+    try:
+        # Get the main content area, focusing on article/blog content
+        content_selectors = [
+            'main', 'article', '.content', '.main-content', '.post-content',
+            '.blog-content', '.entry-content', '[role="main"]', '.container'
+        ]
+        
+        for selector in content_selectors:
+            try:
+                element = await page.locator(selector).first
+                if element:
+                    content = await element.inner_text()
+                    if content and len(content.strip()) > 100:  # Ensure meaningful content
+                        return content.strip()
+            except:
+                continue
+        
+        # Fallback to body content if no specific content area found
+        body = await page.locator('body')
+        return await body.inner_text()
+        
     except Exception as e:
-        print(f"Error: {e}")
-        # in self_heal mode, we'll retry the action
+        print(f"⚠️  Error getting DOM content: {e}")
+        return ""
+
+async def check_dom_changes(page, url: str) -> tuple[bool, str]:
+    """Check if DOM content has changed since last cache"""
+    url_key = url_hash(url)
+    dom_cache_key = f"dom_content_{url_key}"
+    dom_hash_key = f"dom_hash_{url_key}"
+    
+    # Get current DOM content
+    current_content = await get_dom_content(page)
+    current_hash = content_hash(current_content)
+    
+    # Get cached DOM hash
+    cached_hash = await get_cache(dom_hash_key)
+    
+    if cached_hash is None:
+        # First time, cache the content and hash
+        print(f"🆕 First time accessing {url}, caching DOM content")
+        await set_cache(dom_cache_key, current_content)
+        await set_cache(dom_hash_key, current_hash)
+        return False, current_content
+    
+    if cached_hash == current_hash:
+        # DOM hasn't changed, use cached content
+        print(f"🔄 DOM unchanged for {url}, using cached content")
+        cached_content = await get_cache(dom_cache_key)
+        return False, cached_content
+    else:
+        # DOM has changed, update cache
+        print(f"📢 DOM changed for {url}, updating cache")
+        await set_cache(dom_cache_key, current_content)
+        await set_cache(dom_hash_key, current_hash)
+        return True, current_content
+
+# ---------- 5️⃣  Enhanced action caching -----------------------------------
+async def observe_with_cache(page, cache_key: str, prompt: str, max_retries: int = 2) -> List[Any]:
+    """Execute page.observe() with caching and retry logic"""
+    for attempt in range(max_retries + 1):
+        try:
+            # Check cache first
+            cached_actions = await get_cache(cache_key)
+            if cached_actions and attempt == 0:  # Only use cache on first attempt
+                print(f"🔄 Using cached actions for: {cache_key}")
+                return cached_actions
+            
+            # Not in cache or retry, observe fresh
+            print(f"🔍 Observing new actions for: {cache_key} (attempt {attempt + 1})")
+            actions = await page.observe(prompt)
+            
+            # Ensure we have a list
+            if not isinstance(actions, list):
+                actions = [actions]
+            
+            # Cache the actions
+            await set_cache(cache_key, actions)
+            return actions
+            
+        except Exception as e:
+            print(f"❌ Error observing actions (attempt {attempt + 1}): {e}")
+            if attempt < max_retries:
+                # Clear cache on retry attempts
+                await clear_cache_key(cache_key)
+                print("🔧 Clearing cache and retrying...")
+            else:
+                raise e
+
+async def act_with_cache(page, cache_key: str, prompt: str, self_heal: bool = True) -> None:
+    """Execute page actions with caching and self-healing"""
+    try:
+        # Get cached or fresh actions
+        actions = await observe_with_cache(page, cache_key, prompt)
+        
+        # Execute all actions
+        for i, action in enumerate(actions):
+            print(f"🎯 Executing action {i + 1}/{len(actions)}")
+            await page.act(action)
+            
+    except Exception as e:
+        print(f"❌ Error executing cached actions: {e}")
         if self_heal:
-            print("Attempting to self-heal...")
+            print("🔧 Self-healing: clearing cache and trying direct action...")
+            await clear_cache_key(cache_key)
+            # Fall back to direct action
             await page.act(prompt)
         else:
             raise e
 
+# ---------- 6️⃣  Enhanced extraction with DOM caching ----------------------
+async def extract_link_with_cache(sh: Stagehand, list_page: str, max_retries: int = 2) -> str:
+    """Extract article link with DOM caching and validation retry"""
+    url_key = url_hash(list_page)
+    cache_key = f"link_extraction_{url_key}"
+    last_link_key = f"last_link_{url_key}"
+    
+    for attempt in range(max_retries + 1):
+        try:
+            # Navigate to page (always needed for DOM check)
+            print(f"🔗 Navigating to {list_page} (attempt {attempt + 1})")
+            await sh.page.goto(list_page, timeout=45_000)
+            
+            # Check if DOM has changed
+            dom_changed, dom_content = await check_dom_changes(sh.page, list_page)
+            
+            # Check cache first (only if DOM hasn't changed and it's first attempt)
+            if not dom_changed and attempt == 0:
+                cached_result = await get_cache(cache_key)
+                if cached_result:
+                    print(f"🔄 Using cached link: {cached_result}")
+                    return cached_result
+            
+            # DOM changed or not in cache or retry, extract fresh
+            if dom_changed:
+                print(f"📢 DOM changed, re-extracting link from {list_page}")
+            else:
+                print(f"🔍 Extracting link from {list_page} (attempt {attempt + 1})")
+            
+            link_result = await sh.page.extract(
+                instruction=("extract the link to the most recent blog post."),
+                schema=LinkList,
+            )
+            
+            extracted_link = str(link_result.link)
+            
+            # Cache the result
+            await set_cache(cache_key, extracted_link)
+            
+            # Check if link has changed from last extraction
+            last_link = await get_cache(last_link_key)
+            if last_link and last_link != extracted_link:
+                print(f"📢 Link changed from {last_link} to {extracted_link}")
+                # Clear article cache for the old link
+                old_article_key = f"article_extraction_{url_hash(last_link)}"
+                await clear_cache_key(old_article_key)
+                print("🧹 Cleared old article cache")
+            
+            # Update last known link
+            await set_cache(last_link_key, extracted_link)
+            
+            print(f"✅ Extracted and cached link: {extracted_link}")
+            return extracted_link
+            
+        except (ValidationError, ValueError) as e:
+            print(f"❌ Link extraction validation failed (attempt {attempt + 1}): {e}")
+            if attempt < max_retries:
+                await clear_cache_key(cache_key)
+                print("🔧 Clearing cache and retrying...")
+            else:
+                raise e
+        except Exception as e:
+            print(f"❌ Unexpected error in link extraction (attempt {attempt + 1}): {e}")
+            if attempt < max_retries:
+                await clear_cache_key(cache_key)
+            else:
+                raise e
+
+async def extract_article_with_cache(sh: Stagehand, url: str, max_retries: int = 2) -> Article:
+    """Extract article with caching and validation retry"""
+    url_key = url_hash(url)
+    cache_key = f"article_extraction_{url_key}"
+    
+    for attempt in range(max_retries + 1):
+        try:
+            # Navigate to page (always needed for DOM check)
+            print(f"📰 Navigating to {url} (attempt {attempt + 1})")
+            await sh.page.goto(url, timeout=45_000)
+            
+            # Check if DOM has changed
+            dom_changed, dom_content = await check_dom_changes(sh.page, url)
+            
+            # Check cache first (only if DOM hasn't changed and it's first attempt)
+            if not dom_changed and attempt == 0:
+                cached_result = await get_cache(cache_key)
+                if cached_result:
+                    print(f"🔄 Using cached article: {cached_result.get('title', 'Unknown')}")
+                    return Article(**cached_result)
+            
+            # DOM changed or not in cache or retry, extract fresh
+            if dom_changed:
+                print(f"📢 DOM changed, re-extracting article from {url}")
+            else:
+                print(f"🔍 Extracting article from {url} (attempt {attempt + 1})")
+            
+            rec: Article | dict = await sh.page.extract(
+                instruction=(
+                    "Extract the article title, author, ISO publication date "
+                    "(YYYY-MM-DD) and every body paragraph as an array named content. "
+                    "Ignore ads, nav, footer, sidebar."
+                ),
+                schema=Article,
+            )
+            
+            article = rec if isinstance(rec, Article) else Article(**rec)
+            
+            # Validate article has meaningful content
+            if not article.title or len(article.title.strip()) < 3:
+                raise ValidationError("Article title is too short or missing")
+            if not article.content or len(article.content) == 0:
+                raise ValidationError("Article content is empty")
+            
+            # Cache the result
+            await set_cache(cache_key, article.model_dump())
+            print(f"✅ Extracted and cached article: {article.title}")
+            
+            return article
+            
+        except (ValidationError, ValueError) as e:
+            print(f"❌ Article extraction validation failed (attempt {attempt + 1}): {e}")
+            if attempt < max_retries:
+                await clear_cache_key(cache_key)
+                print("🔧 Clearing cache and retrying...")
+            else:
+                raise e
+        except Exception as e:
+            print(f"❌ Unexpected error in article extraction (attempt {attempt + 1}): {e}")
+            if attempt < max_retries:
+                await clear_cache_key(cache_key)
+            else:
+                raise e
+
+# ---------- 7️⃣  Main logic with enhanced caching --------------------------
 async def main(list_page: str):
+    """Main function with enhanced caching, validation, and retry logic"""
     sh = Stagehand(CFG)
     await sh.init()
 
-    # -- step 1: get first article link(s) -----------------------------------
-    await sh.page.goto(list_page, timeout=45_000)
-    link_result = await sh.page.extract(
-        instruction=("extract the link to the most recent blog post."),
-        schema=LinkList,
-    )
-    link = link_result.link
-    print(f"🔗: {link}")
-
-    # -- step 2: visit each link & extract article ---------------------------
-    records = []
     try:
-        art = await extract_article(sh, str(link))
-        records.append(art.model_dump())
-        print(f"✅ extracted {link}")
+        print(f"🚀 Starting extraction for: {list_page}")
+        
+        # Step 1: Get article link (with DOM caching and retry)
+        link = await extract_link_with_cache(sh, list_page)
+        
+        # Step 2: Extract article (with DOM caching and retry)
+        article = await extract_article_with_cache(sh, link)
+        
+        # Output results
+        records = [article.model_dump()]
+        print(f"🎉 Successfully processed {link}")
+        print("\n" + "="*50)
+        print("EXTRACTED ARTICLE:")
+        print("="*50)
+        print(json.dumps(records, indent=2, default=str))
+        
     except Exception as e:
-        print(f"⚠️  {link} failed → {e}")
-
-    await sh.close()
-    print(json.dumps(records, indent=2, default=str))
+        print(f"💥 Processing failed after all retries: {e}")
+        sys.exit(1)
+        
+    finally:
+        await sh.close()
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
