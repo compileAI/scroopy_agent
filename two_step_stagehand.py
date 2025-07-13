@@ -172,17 +172,23 @@ async def get_dom_content(page) -> str:
         
         for selector in content_selectors:
             try:
-                element = await page.locator(selector).first
-                if element:
+                # Check if element exists first
+                element = page.locator(selector).first
+                if await element.count() > 0:
                     content = await element.inner_text()
                     if content and len(content.strip()) > 100:  # Ensure meaningful content
                         return content.strip()
-            except:
+            except Exception as e:
+                print(f"⚠️  Error with selector '{selector}': {e}")
                 continue
         
         # Fallback to body content if no specific content area found
-        body = await page.locator('body')
-        return await body.inner_text()
+        try:
+            body = page.locator('body')
+            return await body.inner_text()
+        except Exception as e:
+            print(f"⚠️  Error getting body content: {e}")
+            return ""
         
     except Exception as e:
         print(f"⚠️  Error getting DOM content: {e}")
@@ -191,10 +197,9 @@ async def get_dom_content(page) -> str:
 async def check_dom_changes(page, url: str) -> tuple[bool, str]:
     """Check if DOM content has changed since last cache"""
     url_key = url_hash(url)
-    dom_cache_key = f"dom_content_{url_key}"
     dom_hash_key = f"dom_hash_{url_key}"
     
-    # Get current DOM content
+    # Get current DOM content and hash
     current_content = await get_dom_content(page)
     current_hash = content_hash(current_content)
     
@@ -202,21 +207,18 @@ async def check_dom_changes(page, url: str) -> tuple[bool, str]:
     cached_hash = await get_cache(dom_hash_key)
     
     if cached_hash is None:
-        # First time, cache the content and hash
-        print(f"🆕 First time accessing {url}, caching DOM content")
-        await set_cache(dom_cache_key, current_content)
+        # First time, cache the hash
+        print(f"🆕 First time accessing {url}, caching DOM hash")
         await set_cache(dom_hash_key, current_hash)
         return False, current_content
     
     if cached_hash == current_hash:
-        # DOM hasn't changed, use cached content
-        print(f"🔄 DOM unchanged for {url}, using cached content")
-        cached_content = await get_cache(dom_cache_key)
-        return False, cached_content
+        # DOM hasn't changed
+        print(f"🔄 DOM unchanged for {url}, using cached hash")
+        return False, current_content
     else:
         # DOM has changed, update cache
-        print(f"📢 DOM changed for {url}, updating cache")
-        await set_cache(dom_cache_key, current_content)
+        print(f"📢 DOM changed for {url}, updating DOM hash")
         await set_cache(dom_hash_key, current_hash)
         return True, current_content
 
@@ -408,11 +410,20 @@ async def extract_article_with_cache(page, url: str, max_retries: int = 2) -> tu
                 raise e
 
 # ---------- 8️⃣  Production main function ----------------------------------
-async def process_single_source(sh: Stagehand, source: Dict[str, Any]) -> Dict[str, Any]:
+async def process_single_source(sh: Stagehand, source: Dict[str, Any] | str, write_to_db: bool = True) -> Dict[str, Any]:
     """Process a single source and return results"""
-    source_id = source['id']
-    source_name = source.get('master_sources', {}).get('name', 'Unknown')
-    home_url = source['home_url']
+    
+    # Handle both database source dict and single URL string
+    if isinstance(source, str):
+        # Single URL mode
+        source_id = -1  # Dummy ID
+        source_name = 'Test URL'
+        home_url = source
+    else:
+        # Database source mode
+        source_id = source['id']
+        source_name = source.get('master_sources', {}).get('name', 'Unknown')
+        home_url = source['home_url']
     
     print(f"\n🚀 Processing source: {source_name} (ID: {source_id})")
     print(f"📍 Home URL: {home_url}")
@@ -439,8 +450,8 @@ async def process_single_source(sh: Stagehand, source: Dict[str, Any]) -> Dict[s
         article, article_cache_hit = await extract_article_with_cache(sh.page, article_url)
         result['article'] = article
         
-        # Step 3: Only write to DB if both are cache misses
-        if not link_cache_hit and not article_cache_hit:
+        # Step 3: Write to DB only if requested and both are cache misses
+        if write_to_db and not link_cache_hit and not article_cache_hit:
             success = await write_article_to_db(article, source_id, article_url)
             if success:
                 result['status'] = 'success'
@@ -449,9 +460,13 @@ async def process_single_source(sh: Stagehand, source: Dict[str, Any]) -> Dict[s
                 result['status'] = 'failed'
                 result['error'] = 'Failed to write to database'
                 print(f"❌ Failed to write article to database for {source_name}")
-        else:
+        elif write_to_db and (link_cache_hit or article_cache_hit):
             result['status'] = 'skipped'
             print(f"⏩ Skipped DB write for {source_name} (cache hit)")
+        else:
+            # Single URL mode or cache hit without DB write
+            result['status'] = 'success'
+            print(f"✅ Successfully extracted {source_name} (no DB write)")
         
     except Exception as e:
         result['status'] = 'failed'
@@ -496,8 +511,48 @@ async def process_sources_batch(sources: List[Dict[str, Any]], batch_size: int =
     
     return all_results
 
-async def main(batch_size: int = 5, max_sources: Optional[int] = None):
-    """Production main function that processes all stagehand sources"""
+async def main(batch_size: int = 5, max_sources: Optional[int] = None, single_url: Optional[str] = None):
+    """Production main function that processes all stagehand sources or a single URL"""
+    
+    if single_url:
+        # Single URL mode
+        print(f"🔍 Running two-step extraction on single URL: {single_url}")
+        
+        # Initialize Stagehand
+        sh = Stagehand(CFG)
+        await sh.init()
+        
+        try:
+            result = await process_single_source(sh, single_url, write_to_db=False)
+            
+            # Print results for single URL
+            print(f"\n{'='*60}")
+            print("📊 SINGLE URL EXTRACTION RESULTS")
+            print(f"{'='*60}")
+            
+            if result['status'] == 'success':
+                article = result['article']
+                print(f"✅ SUCCESS: Article extracted and written to database")
+                print(f"📰 Title: {article.title}")
+                print(f"✍️  Author: {article.author}")
+                print(f"📅 Published: {article.date_published}")
+                print(f"🔗 URL: {result['article_url']}")
+                print(f"📝 Content: {article.content}")
+            elif result['status'] == 'skipped':
+                article = result['article']
+                print(f"⏩ SKIPPED: Article was cached (not written to database)")
+                print(f"📰 Title: {article.title}")
+                print(f"✍️  Author: {article.author}")
+                print(f"📅 Published: {article.date_published}")
+                print(f"🔗 URL: {result['article_url']}")
+            else:
+                print(f"❌ FAILED: {result['error']}")
+                
+        finally:
+            await sh.close()
+        return
+    
+    # Production mode - process all sources from database
     print("🏭 Starting production article extraction for all stagehand sources")
     
     # Get all sources from database
@@ -577,7 +632,8 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Production article extraction for stagehand sources')
     parser.add_argument('--batch-size', type=int, default=5, help='Number of sources to process in each batch')
     parser.add_argument('--max-sources', type=int, help='Maximum number of sources to process (for testing)')
+    parser.add_argument('--url', type=str, help='Single URL to test extraction on (instead of processing all sources)')
     
     args = parser.parse_args()
     
-    asyncio.run(main(batch_size=args.batch_size, max_sources=args.max_sources))
+    asyncio.run(main(batch_size=args.batch_size, max_sources=args.max_sources, single_url=args.url))
