@@ -1,6 +1,8 @@
+import hashlib
 from supabase import create_client, Client
 from typing import Optional, Dict, Any, List
 import os
+
 from models import Article
 
 def get_supabase_client() -> Client:
