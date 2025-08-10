@@ -70,6 +70,7 @@ def main():
     import argparse
     
     parser = argparse.ArgumentParser(description="Run all custom scrapers and write to Supabase")
+    # BUG: I think this limit propagates in a weird way and will cause a bug in the future
     parser.add_argument("--limit", type=int, default=20, help="Limit items per scraper (for testing)")
     parser.add_argument("--dry-run", action="store_true", help="Do not write to Supabase; just print summary")
     parser.add_argument("--preview", type=int, default=5, help="Number of items to preview")
