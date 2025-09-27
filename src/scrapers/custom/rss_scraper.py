@@ -1,5 +1,5 @@
 """
-RSS feed scraper - ported from compile for scroopy_agent.
+RSS feed scraper
 Fetches articles from RSS feeds and converts them to SourceArticle objects.
 """
 import feedparser

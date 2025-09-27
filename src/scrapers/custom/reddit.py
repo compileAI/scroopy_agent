@@ -1,5 +1,5 @@
 """
-Reddit scraper - ported from compile for scroopy_agent.
+Reddit scraper
 Fetches posts from Reddit subreddits and converts them to SourceArticle objects.
 """
 import os
