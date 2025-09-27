@@ -14,7 +14,7 @@ src_path = Path(__file__).parent.parent
 if str(src_path) not in sys.path:
     sys.path.insert(0, str(src_path))
 
-from scrapers.custom.rss_scraper import run as run_rss_scraper
+from scrapers.rss.rss_scraper import run as run_rss_scraper
 from utils.supabase import upsert_source_articles
 from models.source_article import SourceArticle
 
