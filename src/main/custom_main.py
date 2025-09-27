@@ -15,7 +15,7 @@ if str(src_path) not in sys.path:
     sys.path.insert(0, str(src_path))
 
 from models.source_article import SourceArticle
-from scrapers.custom import hf_daily_papers
+from scrapers.custom import hf_daily_papers, reddit
 
 
 def run_all_custom_scrapers(limit: int = None) -> List[SourceArticle]:
@@ -33,6 +33,7 @@ def run_all_custom_scrapers(limit: int = None) -> List[SourceArticle]:
     # Add new scrapers here as they're created
     scrapers = [
         ("HF Daily Papers", hf_daily_papers.run),
+        ("Reddit", reddit.run),
     ]
     
     for name, scraper_func in scrapers:
