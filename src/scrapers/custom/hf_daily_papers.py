@@ -112,15 +112,17 @@ def normalize_daily_papers(props: Dict[str, Any]) -> List[SourceArticle]:
         safe_arxiv = arxiv_id.replace("/", "-") if arxiv_id else "no-arxiv-id"
         deterministic_id = f"hf-papers-{safe_arxiv}-{submitted_date}"
 
-        results.append(SourceArticle(
+        source_article = SourceArticle(
             published=submitted_date,
             title=title,
             content=content,
             author=authors,
             source_id=HF_PAPERS_SOURCE_ID,
-            url=link,
-            id=deterministic_id,
-        ))
+            url=link
+        )
+        # Override the auto-generated ID with the deterministic one
+        source_article.id = deterministic_id
+        results.append(source_article)
 
         if idx <= 3:  # brief progressive output for first few
             print(f"  • [{idx}] {title[:80]}…  (submitted: {submitted_date})")

@@ -98,15 +98,17 @@ def convert_article_to_source_article(
     # Generate deterministic ID
     article_id = generate_deterministic_id("stagehand", str(source_id), url)
     
-    return SourceArticle(
+    source_article = SourceArticle(
         published=article.date_published.isoformat() if article.date_published else None,
         title=article.title,
         content='\n\n'.join(article.content) if article.content else '',
         author=article.author,
         source_id=source_id,
-        url=url,
-        id=article_id
+        url=url
     )
+    # Override the auto-generated ID with the deterministic one
+    source_article.id = article_id
+    return source_article
 
 
 async def process_sources_batch(
