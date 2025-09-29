@@ -17,6 +17,7 @@ if str(src_path) not in sys.path:
     sys.path.insert(0, str(src_path))
 
 from utils.supabase import get_stagehand_sources, write_source_articles_to_db
+from utils.pinecone import process_and_write_to_pinecone
 from scrapers.stagehand.extract import process_sources_batch
 from models.source_article import SourceArticle
 
@@ -116,6 +117,7 @@ async def main(batch_size: int = 5, max_sources: Optional[int] = None, dry_run: 
         if source_articles:
             print(f"\n💾 Writing {len(source_articles)} SourceArticles to database...")
             written = write_source_articles_to_db(source_articles)
+            process_and_write_to_pinecone(source_articles)
             print(f"✅ Upserted {written} records to database")
         else:
             print("\n⚠️  No SourceArticles to write to database")

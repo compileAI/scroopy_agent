@@ -95,7 +95,9 @@ def main():
     print("\n💾 Writing to Supabase...")
     try:
         from utils.supabase import write_source_articles_to_db
+        from utils.pinecone import process_and_write_to_pinecone
         written = write_source_articles_to_db(articles)
+        process_and_write_to_pinecone(articles)
         print(f"✅ Done. Upserted {written} of {len(articles)} records")
     except Exception as e:
         print(f"❌ Error writing to Supabase: {e}")

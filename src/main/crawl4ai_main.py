@@ -16,6 +16,7 @@ if str(src_path) not in sys.path:
 
 from scrapers.crawl4ai.extract_articles import run as run_crawl4ai_scraper
 from utils.supabase import upsert_source_articles
+from utils.pinecone import process_and_write_to_pinecone
 from models.source_article import SourceArticle
 
 logger = logging.getLogger(__name__)
@@ -61,6 +62,7 @@ async def main_async(limit: Optional[int] = None, dry_run: bool = False, preview
         # Write to Supabase
         logger.info("💾 Writing to Supabase...")
         written = upsert_source_articles(articles)
+        process_and_write_to_pinecone(articles)
         logger.info(f"✅ Done. Upserted {written} of {len(articles)} records")
         
     except Exception as e:

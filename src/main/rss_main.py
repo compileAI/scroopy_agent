@@ -17,6 +17,7 @@ if str(src_path) not in sys.path:
 from scrapers.rss.rss_scraper import run as run_rss_scraper
 from utils.supabase import upsert_source_articles
 from models.source_article import SourceArticle
+from utils.pinecone import process_and_write_to_pinecone
 
 logger = logging.getLogger(__name__)
 
@@ -75,6 +76,7 @@ def main():
         # Write to Supabase
         logger.info("💾 Writing to Supabase...")
         written = upsert_source_articles(articles)
+        process_and_write_to_pinecone(articles)
         logger.info(f"✅ Done. Upserted {written} of {len(articles)} records")
         
     except Exception as e:
