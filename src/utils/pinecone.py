@@ -1,6 +1,6 @@
 from models.source_article import SourceArticle
-from src.utils.settings import GEMINI_API_KEY
-from utils.config.embedding_config import get_config, EmbeddingConfig
+from utils.settings import GEMINI_API_KEY
+from utils.embedding_config import get_config, EmbeddingConfig
 
 from datetime import datetime, timezone
 import time
