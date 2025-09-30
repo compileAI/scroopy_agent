@@ -4,11 +4,9 @@ RSS scraper main entry point.
 Processes all configured RSS sources and writes results to Supabase.
 """
 import asyncio
-import argparse
 import sys
 import logging
 from pathlib import Path
-from typing import Optional
 
 # Ensure src is on path
 src_path = Path(__file__).parent.parent

@@ -5,7 +5,6 @@ from utils.embedding_config import get_config, EmbeddingConfig
 from datetime import datetime, timezone
 import time
 import os
-import re
 from typing import Dict, List
 
 from pinecone import Pinecone

@@ -2,7 +2,6 @@
 Main crawl4ai article extraction - ported from compile for scroopy_agent.
 Extracts articles from web sources using crawl4ai with schema-based extraction and LLM fallback.
 """
-import os
 import logging
 from urllib.parse import urljoin
 from datetime import datetime, timezone
