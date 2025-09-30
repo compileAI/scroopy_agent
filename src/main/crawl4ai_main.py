@@ -80,11 +80,6 @@ def main():
     parser.add_argument("--preview", type=int, default=5, help="Number of items to preview")
     args = parser.parse_args()
     
-    # Set up logging
-    logging.basicConfig(
-        level=logging.INFO,
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-    )
     
     asyncio.run(main_async(limit=args.limit, dry_run=args.dry_run, preview=args.preview))
 
