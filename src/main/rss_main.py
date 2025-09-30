@@ -4,6 +4,7 @@ RSS scraper main entry point.
 Processes all configured RSS sources and writes results to Supabase.
 """
 import asyncio
+import argparse
 import sys
 import logging
 from pathlib import Path
@@ -40,7 +41,7 @@ def print_summary(articles: list[SourceArticle], limit_preview: int = 5):
         logger.info(f"   📝 {content_preview}")
 
 
-def main():
+async def main():
     """Main entry point for RSS scrapers."""
     import argparse
     
@@ -71,7 +72,7 @@ def main():
         # Write to Supabase
         logger.info("💾 Writing to Supabase...")
         written = upsert_source_articles(articles)
-        process_and_write_to_pinecone(articles)
+        await process_and_write_to_pinecone(articles)
         logger.info(f"✅ Done. Upserted {written} of {len(articles)} records")
         
     except Exception as e:
@@ -80,4 +81,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())

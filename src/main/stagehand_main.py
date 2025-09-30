@@ -117,7 +117,7 @@ async def main(batch_size: int = 5, max_sources: Optional[int] = None, dry_run: 
         if source_articles:
             print(f"\n💾 Writing {len(source_articles)} SourceArticles to database...")
             written = write_source_articles_to_db(source_articles)
-            process_and_write_to_pinecone(source_articles)
+            await process_and_write_to_pinecone(source_articles)
             print(f"✅ Upserted {written} records to database")
         else:
             print("\n⚠️  No SourceArticles to write to database")

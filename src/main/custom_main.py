@@ -5,6 +5,7 @@ Custom scrapers orchestrator.
 Runs all custom scrapers and writes results to Supabase.
 """
 
+import asyncio
 import sys
 from pathlib import Path
 from typing import List
@@ -66,7 +67,7 @@ def print_summary(articles: List[SourceArticle], limit_preview: int = 5):
         print(f"   📝 {content_preview}")
 
 
-def main():
+async def main():
     """Main entry point for custom scrapers."""
     import argparse
     
@@ -97,7 +98,7 @@ def main():
         from utils.supabase import write_source_articles_to_db
         from utils.pinecone import process_and_write_to_pinecone
         written = write_source_articles_to_db(articles)
-        process_and_write_to_pinecone(articles)
+        await process_and_write_to_pinecone(articles)
         print(f"✅ Done. Upserted {written} of {len(articles)} records")
     except Exception as e:
         print(f"❌ Error writing to Supabase: {e}")
@@ -105,4 +106,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())
