@@ -312,22 +312,28 @@ async def process_and_write_to_pinecone(articles: List[SourceArticle], config_na
     Process and write articles to Pinecone.
     Only receives articles that were successfully inserted into Supabase.
     """
-    if not articles:
-        print("No articles to process for Pinecone.")
-        return
+    try: 
+        if not articles:
+            print("No articles to process for Pinecone.")
+            return
 
-    # Initialize with specified configuration if provided
-    if config_name:
-        initialize_embedding(config_name)
+        # Initialize with specified configuration if provided
+        if config_name:
+            initialize_embedding(config_name)
 
-    print(f"Processing {len(articles)} articles for Pinecone...")
+        print(f"Processing {len(articles)} articles for Pinecone...")
 
-    # Step 1: Chunk articles
-    chunks = chunk_articles(articles)
+        # Step 1: Chunk articles
+        chunks = chunk_articles(articles)
 
-    # Step 2: Embed articles
-    embeddings = await embed_articles(chunks)
+        # Step 2: Embed articles
+        embeddings = await embed_articles(chunks)
 
-    # Step 3: Upload to Pinecone
-    await upload_to_pinecone(embeddings, namespace="sourcearticles")
-    print(f"✅ Uploaded {len(articles)} articles to Pinecone")
+        # Step 3: Upload to Pinecone
+        await upload_to_pinecone(embeddings, namespace="sourcearticles")
+        print(f"✅ Uploaded {len(articles)} articles to Pinecone")
+    except Exception as e:
+        print(f"Error processing and writing to Pinecone: {e}")
+        raise e
+
+    
