@@ -2,6 +2,7 @@ from models.source_article import SourceArticle
 from utils.settings import GEMINI_API_KEY
 from utils.embedding_config import get_config, EmbeddingConfig
 from utils.date_utils import safe_parse_date
+from google.genai import types
 
 from datetime import datetime, timezone
 import time
@@ -229,14 +230,19 @@ def get_embeddings(texts: List[str], batch_size: int = 32) -> List[List[float]]:
             batch = texts[i:i + batch_size]
             batch_success = False
             max_retries = 3
+
+            
+            config = types.EmbedContentConfig(
+                task_type="RETRIEVAL_DOCUMENT",
+                output_dimensionality=768
+            )
             
             for retry_attempt in range(max_retries):
                 try:
                     batch_embeddings = client.models.embed_content(
                         model="gemini-embedding-001",
                         contents=batch,
-                        task_type="RETRIEVAL_DOCUMENT",
-                        output_dimensionality=768
+                        config=config
                     )
                     embeddings.extend([e.values for e in batch_embeddings.embeddings])
                     batch_success = True
