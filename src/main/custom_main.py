@@ -95,11 +95,11 @@ async def main():
     # Write to Supabase
     print("\n💾 Writing to Supabase...")
     try:
-        from utils.supabase import write_source_articles_to_db
+        from utils.supabase import upsert_source_articles
         from utils.pinecone import process_and_write_to_pinecone
-        written = write_source_articles_to_db(articles)
-        await process_and_write_to_pinecone(articles)
-        print(f"✅ Done. Upserted {written} of {len(articles)} records")
+        written = upsert_source_articles(articles)
+        await process_and_write_to_pinecone(written)
+        print(f"✅ Done. Upserted {len(written)} of {len(articles)} records")
     except Exception as e:
         print(f"❌ Error writing to Supabase: {e}")
         sys.exit(1)

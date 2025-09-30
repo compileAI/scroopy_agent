@@ -92,42 +92,6 @@ async def write_article_to_db(article: Article, source_id: int, url: str) -> boo
         return False
 
 
-def write_source_articles_to_db(articles: List[SourceArticle]) -> int:
-    """Insert or upsert SourceArticle records into public.source_articles.
-
-    Returns the count of records successfully written.
-    """
-    try:
-        supabase = get_supabase_client()
-    except Exception as e:
-        print(f"❌ Supabase init error: {e}")
-        return 0
-
-    written = 0
-    for art in articles:
-        try:
-            # Normalize to DB payload
-            payload = {
-                'published': art.published,  # already ISO YYYY-MM-DD
-                'title': art.title,
-                'content': art.content,
-                'author': art.author,
-                'source_id': art.source_id,
-                'url': art.url,
-                'id': art.id,
-            }
-
-            # Upsert by id to avoid duplicates while allowing updates
-            result = supabase.table('source_articles').upsert(payload, on_conflict='id').execute()
-            if result.data is not None:
-                written += 1
-                print(f"📝 Upserted: {art.title[:60]}…")
-        except Exception as e:
-            print(f"❌ Failed to upsert SourceArticle ({art.title[:40]}…): {e}")
-
-    return written
-
-
 def add_source_to_database(source_url: str, source_name: str) -> bool:
     """Add a new source to the database."""
     try:
@@ -171,50 +135,9 @@ def add_source_to_database(source_url: str, source_name: str) -> bool:
         return False
 
 
-def check_source_exists(source_url: str) -> bool:
-    """Check if a source URL already exists in the database."""
-    try:
-        supabase = get_supabase_client()
-        result = supabase.table("master_sources").select("id").eq("url", source_url).execute()
-        return len(result.data) > 0
-    except Exception as e:
-        print(f"Error checking source existence: {str(e)}")
-        return False
-
-
-def check_source_name_exists(source_name: str) -> bool:
-    """Check if a source name already exists in the database."""
-    try:
-        supabase = get_supabase_client()
-        result = supabase.table("master_sources").select("id").eq("name", source_name).execute()
-        return len(result.data) > 0
-    except Exception as e:
-        print(f"Error checking source name existence: {str(e)}")
-        return False
-
-
 # =============================================================================
 # SCRAPING-SPECIFIC DATABASE FUNCTIONS (PORTED FROM COMPILE)
 # =============================================================================
-
-def get_source_by_id(source_id: int) -> Optional[NewsSource]:
-    """Get a news source from the master_sources table by its source_id."""
-    try:
-        supabase = get_supabase_client()
-        result = supabase.table('master_sources').select('*').eq('id', source_id).execute()
-        if not result.data:
-            return None
-        
-        row = result.data[0]
-        return NewsSource(
-            name=row['name'],
-            home_url=row['url'],
-            source_id=row['id'],
-            created_at=row['created_at']
-        )
-    except Exception as e:
-        logger.error(f'Error fetching source by ID: {e}')
-        return None
 
 
 def get_active_rss_sources() -> List[RssSource]:

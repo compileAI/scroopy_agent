@@ -70,8 +70,8 @@ async def main():
         # Write to Supabase
         logger.info("💾 Writing to Supabase...")
         written = upsert_source_articles(articles)
-        await process_and_write_to_pinecone(articles)
-        logger.info(f"✅ Done. Upserted {written} of {len(articles)} records")
+        await process_and_write_to_pinecone(written)
+        logger.info(f"✅ Done. Upserted {len(written)} of {len(articles)} records")
         
     except Exception as e:
         logger.error(f"❌ Error in RSS scraper: {e}")
