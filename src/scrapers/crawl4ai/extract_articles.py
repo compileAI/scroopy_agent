@@ -18,6 +18,7 @@ from models.source_article import SourceArticle
 from models.news_sources import CrawlSource, NewsSource
 from .schema_generation import generate_link_schema, generate_article_schema
 from .llm_fallback import extract_article_with_llm
+from utils.date_utils import safe_parse_date
 
 # Load environment variables
 load_dotenv()
@@ -322,45 +323,6 @@ def clean_urls(base_url: str, extracted_items: List[dict], url_field: str = "art
     return completed_urls
 
 
-def safe_parse_date(date_str: str) -> Optional[datetime]:
-    """
-    Safely parses a date string into a timezone-aware datetime object using dateutil.parser.
-    
-    Args:
-        date_str: The date string to parse
-        
-    Returns:
-        Timezone-aware datetime object if successful, None if parsing fails
-    """
-    if not date_str or not isinstance(date_str, str) or date_str.strip() == "":
-        return None
-
-    # Common date string cleanups
-    date_str = date_str.strip()
-    
-    # Remove timezone abbreviations that might confuse the parser
-    date_str = date_str.replace("EST", "").replace("EDT", "").replace("PST", "").replace("PDT", "")
-    
-    try:
-        from dateutil import parser
-        # Try parsing with fuzzy=True to handle more formats
-        parsed_date = parser.parse(date_str, fuzzy=True)
-        
-        # If the date is naive (no timezone info), assume UTC
-        if parsed_date.tzinfo is None:
-            parsed_date = parsed_date.replace(tzinfo=timezone.utc)
-        
-        # If the year is in the future, it might be a mistake
-        current_time = datetime.now(timezone.utc)
-        if parsed_date.year > current_time.year + 1:
-            logger.warning(f"Parsed date {parsed_date} is in the future, might be incorrect")
-            return None
-            
-        return parsed_date
-        
-    except Exception as e:
-        logger.warning(f"Failed to parse date: {date_str} ({str(e)})")
-        return None
 
 
 def _log_llm_fallback_success(source_name: str, article_url: str, schema_error: str):

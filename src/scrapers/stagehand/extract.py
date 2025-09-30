@@ -99,7 +99,7 @@ def convert_article_to_source_article(
     article_id = generate_deterministic_id("stagehand", str(source_id), url)
     
     source_article = SourceArticle(
-        published=article.date_published.isoformat() if article.date_published else None,
+        published=article.date_published,  # Pass datetime object directly
         title=article.title,
         content='\n\n'.join(article.content) if article.content else '',
         author=article.author,

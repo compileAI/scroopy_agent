@@ -16,6 +16,7 @@ if str(src_path) not in sys.path:
 from models.source_article import SourceArticle
 from models.stagehand import Article
 from models.news_sources import NewsSource, RssSource, RedditSource, CrawlSource
+from utils.date_utils import safe_parse_date
 
 logger = logging.getLogger(__name__)
 
@@ -359,12 +360,11 @@ async def insert_crawl_source(crawl_source: CrawlSource) -> Optional[CrawlSource
         logger.info("Successfully inserted crawl source linked to master source")
 
         # Return updated CrawlSource object
-        from dateutil import parser
         updated_crawl_source = CrawlSource(
             name=crawl_source.name,
             home_url=crawl_source.home_url,
             source_id=source_id,
-            created_at=parser.parse(created_at),  # parse ISO string into datetime
+            created_at=safe_parse_date(created_at) or datetime.now(timezone.utc),  # parse ISO string into datetime
             link_schema=crawl_source.link_schema,
             article_schema=crawl_source.article_schema,
         )

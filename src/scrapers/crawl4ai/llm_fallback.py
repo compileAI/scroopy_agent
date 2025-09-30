@@ -18,6 +18,7 @@ if str(src_path) not in sys.path:
 
 from models.source_article import SourceArticle
 from models.news_sources import NewsSource
+from utils.date_utils import safe_parse_date
 
 # Load environment variables
 load_dotenv()
@@ -151,7 +152,7 @@ Focus on extracting the main article content, ignoring navigation, ads, sidebars
         content = _clean_markdown_formatting(content)
         
         # Parse publication date safely
-        published_date = _safe_parse_llm_date(data.get('date_published', ''))
+        published_date = safe_parse_date(data.get('date_published', ''))
         if published_date is None:
             published_date = datetime.now(timezone.utc)
         
@@ -216,38 +217,3 @@ def _clean_markdown_formatting(content: str) -> str:
     return content.strip()
 
 
-def _safe_parse_llm_date(date_str: str) -> Optional[datetime]:
-    """
-    Safely parse a date string extracted by LLM.
-    
-    Args:
-        date_str: Date string from LLM extraction
-        
-    Returns:
-        Timezone-aware datetime object or None if parsing fails
-    """
-    if not date_str or not isinstance(date_str, str) or date_str.strip() == "":
-        return None
-
-    date_str = date_str.strip()
-    
-    try:
-        from dateutil import parser
-        # Try parsing with fuzzy=True to handle more formats
-        parsed_date = parser.parse(date_str, fuzzy=True)
-        
-        # If the date is naive (no timezone info), assume UTC
-        if parsed_date.tzinfo is None:
-            parsed_date = parsed_date.replace(tzinfo=timezone.utc)
-        
-        # Validate date is reasonable (not too far in future)
-        current_time = datetime.now(timezone.utc)
-        if parsed_date.year > current_time.year + 1:
-            logger.warning(f"LLM parsed date {parsed_date} is in the future")
-            return None
-            
-        return parsed_date
-        
-    except Exception as e:
-        logger.warning(f"Failed to parse LLM date: {date_str} ({str(e)})")
-        return None

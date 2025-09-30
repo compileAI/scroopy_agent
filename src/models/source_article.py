@@ -5,6 +5,7 @@ from datetime import datetime
 from typing import Optional
 import hashlib
 import logging
+from utils.date_utils import safe_parse_date
 
 try:
     from bs4 import BeautifulSoup
@@ -94,8 +95,7 @@ class SourceArticle:
             published = None
             if data.get('published'):
                 if isinstance(data['published'], str):
-                    from dateutil import parser
-                    published = parser.parse(data['published'])
+                    published = safe_parse_date(data['published'])
                 elif isinstance(data['published'], datetime):
                     published = data['published']
             

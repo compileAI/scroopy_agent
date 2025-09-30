@@ -1,6 +1,7 @@
 from models.source_article import SourceArticle
 from utils.settings import GEMINI_API_KEY
 from utils.embedding_config import get_config, EmbeddingConfig
+from utils.date_utils import safe_parse_date
 
 from datetime import datetime, timezone
 import time
@@ -150,13 +151,32 @@ def chunk_articles(articles: List[SourceArticle]) -> List[Dict]:
         # Truncate if too long
         truncated_text = truncate_text(combined_text)
 
+        # Handle both datetime objects and ISO string dates
+        published_iso = ""
+        published_ts = 0
+        if article.published:
+            if isinstance(article.published, datetime):
+                published_iso = article.published.isoformat()
+                published_ts = article.published.timestamp()
+            elif isinstance(article.published, str):
+                published_iso = article.published
+                # Try to parse the string to get timestamp
+                try:
+                    parsed_date = safe_parse_date(article.published)
+                    if parsed_date:
+                        published_ts = parsed_date.timestamp()
+                    else:
+                        published_ts = 0
+                except:
+                    published_ts = 0
+        
         chunk = {
             "id": article.id,
             "text": truncated_text,
             "metadata": {
                 "id": article.id,
-                "published": article.published.isoformat() if article.published else "",
-                "published_ts": article.published.timestamp() if article.published else 0
+                "published": published_iso,
+                "published_ts": published_ts
             }
         }
         chunks.append(chunk)

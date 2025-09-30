@@ -16,6 +16,7 @@ if str(src_path) not in sys.path:
 from models.source_article import SourceArticle
 from utils.http import create_session
 from utils.settings import HF_PAPERS_URL, HF_PAPERS_SOURCE_ID
+from utils.date_utils import safe_parse_date
 
 
 def fetch_daily_papers_html(url: str = HF_PAPERS_URL) -> str:
@@ -84,8 +85,9 @@ def normalize_daily_papers(props: Dict[str, Any]) -> List[SourceArticle]:
         arxiv_published_date = published_at
         try:
             if published_at:
-                dt = datetime.fromisoformat(published_at.replace("Z", "+00:00"))
-                arxiv_published_date = dt.date().isoformat()
+                dt = safe_parse_date(published_at)
+                if dt:
+                    arxiv_published_date = dt.date().isoformat()
         except Exception:
             pass
 
@@ -95,11 +97,14 @@ def normalize_daily_papers(props: Dict[str, Any]) -> List[SourceArticle]:
             or item.get("submittedOnDailyAt")
             or ""
         )
-        submitted_date = submitted_on_daily_at
+        submitted_date = None
+        submitted_date_str = submitted_on_daily_at
         try:
             if submitted_on_daily_at:
-                sdt = datetime.fromisoformat(submitted_on_daily_at.replace("Z", "+00:00"))
-                submitted_date = sdt.date().isoformat()
+                sdt = safe_parse_date(submitted_on_daily_at)
+                if sdt:
+                    submitted_date = sdt  # Keep as datetime object
+                    submitted_date_str = sdt.date().isoformat()  # Keep string for ID generation
         except Exception:
             pass
 
@@ -110,10 +115,10 @@ def normalize_daily_papers(props: Dict[str, Any]) -> List[SourceArticle]:
 
         # Deterministic id for safe upserts
         safe_arxiv = arxiv_id.replace("/", "-") if arxiv_id else "no-arxiv-id"
-        deterministic_id = f"hf-papers-{safe_arxiv}-{submitted_date}"
+        deterministic_id = f"hf-papers-{safe_arxiv}-{submitted_date_str}"
 
         source_article = SourceArticle(
-            published=submitted_date,
+            published=submitted_date,  # Pass datetime object
             title=title,
             content=content,
             author=authors,
