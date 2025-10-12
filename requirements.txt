@@ -2,6 +2,7 @@
 requests>=2.32.0
 python-dotenv>=1.0.0
 beautifulsoup4>=4.12.0
+httpx
 
 # Data validation and models
 pydantic>=2.0.0
@@ -31,3 +32,9 @@ crawl4ai>=0.4.0
 praw>=7.0.0
 asyncpraw>=7.0.0
 feedparser>=6.0.0
+
+google-genai
+pinecone
+sentence-transformers
+
+

@@ -19,7 +19,7 @@ from models.source_article import SourceArticle
 from scrapers.custom import hf_daily_papers, reddit
 
 
-def run_all_custom_scrapers(limit: int = None) -> List[SourceArticle]:
+async def run_all_custom_scrapers(limit: int = None) -> List[SourceArticle]:
     """Run all custom scrapers and collect SourceArticle records.
     
     Args:
@@ -33,14 +33,14 @@ def run_all_custom_scrapers(limit: int = None) -> List[SourceArticle]:
     
     # Add new scrapers here as they're created
     scrapers = [
-        ("HF Daily Papers", hf_daily_papers.run),
-        ("Reddit", reddit.run),
+        ("HF Daily Papers", hf_daily_papers.run_async),
+        ("Reddit", reddit.run_async),
     ]
     
     for name, scraper_func in scrapers:
         try:
             print(f"\n📡 Running {name} scraper...")
-            scraper_records = scraper_func(limit=limit)
+            scraper_records = await scraper_func(limit=limit)
             records.extend(scraper_records)
             print(f"✅ {name}: collected {len(scraper_records)} records")
         except Exception as e:
@@ -79,7 +79,7 @@ async def main():
     args = parser.parse_args()
     
     # Run scrapers
-    articles = run_all_custom_scrapers(limit=args.limit)
+    articles = await run_all_custom_scrapers(limit=args.limit)
     
     # Print summary
     print_summary(articles, limit_preview=args.preview)

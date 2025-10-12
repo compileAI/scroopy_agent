@@ -18,6 +18,11 @@ from utils.supabase import upsert_source_articles
 from models.source_article import SourceArticle
 from utils.pinecone import process_and_write_to_pinecone
 
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(message)s'  # Simple format to match the print-style output
+)
 logger = logging.getLogger(__name__)
 
 

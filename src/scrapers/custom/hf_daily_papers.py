@@ -2,7 +2,6 @@ import json
 import time
 import html
 from typing import List, Dict, Any, Optional
-from datetime import datetime
 
 from bs4 import BeautifulSoup
 
@@ -14,19 +13,19 @@ if str(src_path) not in sys.path:
     sys.path.insert(0, str(src_path))
 
 from models.source_article import SourceArticle
-from utils.http import create_session
 from utils.settings import HF_PAPERS_URL, HF_PAPERS_SOURCE_ID
 from utils.date_utils import safe_parse_date
+from utils.http import create_async_httpx_client
 
 
-def fetch_daily_papers_html(url: str = HF_PAPERS_URL) -> str:
+async def fetch_daily_papers_html(url: str = HF_PAPERS_URL) -> str:
     """Fetch the HuggingFace papers page HTML."""
     print(f"🔍 Fetching page: {url}")
-    session = create_session()
-    response = session.get(url)
-    response.raise_for_status()
-    print(f"✅ Got HTML ({len(response.text)} bytes)")
-    return response.text
+    async with create_async_httpx_client() as client:
+        response = await client.get(url)
+        response.raise_for_status()
+        print(f"✅ Got HTML ({len(response.text)} bytes)")
+        return response.text
 
 
 def extract_props_json(html_text: str) -> Dict[str, Any]:
@@ -135,7 +134,7 @@ def normalize_daily_papers(props: Dict[str, Any]) -> List[SourceArticle]:
     return results
 
 
-def run(limit: Optional[int] = None) -> List[SourceArticle]:
+async def run_async(limit: Optional[int] = None) -> List[SourceArticle]:
     """Main entry point for HF Daily Papers scraper.
     
     Args:
@@ -145,7 +144,7 @@ def run(limit: Optional[int] = None) -> List[SourceArticle]:
         List of SourceArticle objects
     """
     start = time.time()
-    html_text = fetch_daily_papers_html()
+    html_text = await fetch_daily_papers_html()
     props = extract_props_json(html_text)
     papers = normalize_daily_papers(props)
     
@@ -161,6 +160,7 @@ def run(limit: Optional[int] = None) -> List[SourceArticle]:
 if __name__ == "__main__":
     # For testing the scraper directly
     import argparse
+    import asyncio
     from dataclasses import asdict
 
     parser = argparse.ArgumentParser(description="Scrape Hugging Face Daily Papers")
@@ -169,7 +169,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     print("🤗 Testing HF Daily Papers scraper")
-    papers = run(limit=args.limit)
+    papers = asyncio.run(run_async(limit=args.limit))
 
     print(f"\n📋 Found {len(papers)} papers:")
     for i, p in enumerate(papers[:3], start=1):
