@@ -134,7 +134,8 @@ async def process_sources_batch(
         for j, source in enumerate(batch, 1):
             print(f"\n📊 Batch progress: {j}/{len(batch)}")
             
-            # Initialize Stagehand for each source (to avoid session issues)
+            # Get Stagehand client from managed pool
+            # Note: Client is NOT closed - it stays in pool for reuse
             sh = await get_initialized_client()
             
             try:
@@ -151,8 +152,17 @@ async def process_sources_batch(
                 else:
                     batch_results.append(result)
                     
-            finally:
-                await sh.close()
+            except Exception as e:
+                # Report rate limits to the manager for tracking
+                from .client import get_manager
+                manager = get_manager()
+                try:
+                    await manager.report_rate_limit(e)
+                except Exception:
+                    pass  # If it's not a rate limit, that's fine
+                
+                # Let the error propagate
+                raise
             
         all_results.extend(batch_results)
     

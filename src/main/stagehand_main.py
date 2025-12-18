@@ -3,6 +3,9 @@
 Stagehand batch processor.
 
 Processes all configured Stagehand sources and writes results to Supabase.
+
+IMPORTANT NOTE: The client rotation requires us to reset os.environ for GOOGLE_API_KEY and GEMINI_API_KEY each time we change clients, so we can NEVER run these in parallel
+they must always be sequential to avoid overwriting the current environment var.
 """
 
 import asyncio
@@ -19,6 +22,7 @@ if str(src_path) not in sys.path:
 from utils.supabase import get_stagehand_sources, upsert_source_articles
 from utils.pinecone import process_and_write_to_pinecone
 from scrapers.stagehand.extract import process_sources_batch
+from scrapers.stagehand.client import get_manager
 from models.source_article import SourceArticle
 
 
@@ -125,6 +129,13 @@ async def main(batch_size: int = 5, max_sources: Optional[int] = None, dry_run: 
     except Exception as e:
         print(f"💥 Fatal error during processing: {e}")
         sys.exit(1)
+    
+    finally:
+        # Clean up the client pool
+        print("\n🧹 Cleaning up Stagehand client pool...")
+        manager = get_manager()
+        await manager.close_all()
+        print("✅ Cleanup complete")
 
 
 def cli_main():
