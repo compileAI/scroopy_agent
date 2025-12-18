@@ -19,6 +19,7 @@ if str(src_path) not in sys.path:
 from models.source_article import SourceArticle
 from models.news_sources import NewsSource
 from utils.date_utils import safe_parse_date
+from utils.gemini_api_manager import get_current_api_key
 
 # Load environment variables
 load_dotenv()
@@ -48,9 +49,11 @@ async def extract_article_with_llm(crawler, url: str, source: NewsSource) -> Opt
         logger.error("crawl4ai not installed - LLM extraction unavailable")
         return None
     
-    api_key = os.getenv('GEMINI_API_KEY')
-    if not api_key:
-        logger.error("GEMINI_API_KEY not configured")
+    # Get current API key from the manager (supports key rotation)
+    try:
+        api_key = get_current_api_key()
+    except Exception as e:
+        logger.error(f"Failed to get Gemini API key: {e}")
         return None
     
     try:
@@ -59,7 +62,7 @@ async def extract_article_with_llm(crawler, url: str, source: NewsSource) -> Opt
         # LLM extraction strategy following the documentation
         llm_strategy = LLMExtractionStrategy(
             llm_config=LLMConfig(
-                provider="gemini/gemini-2.0-flash",
+                provider="gemini/gemini-2.5-flash-lite",
                 api_token=api_key
             ),
             schema={

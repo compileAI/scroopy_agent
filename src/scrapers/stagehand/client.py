@@ -1,8 +1,5 @@
-import os
 import sys
-from typing import Optional
-
-from stagehand import Stagehand, StagehandConfig
+from stagehand import Stagehand
 
 # Import settings
 from pathlib import Path
@@ -10,24 +7,19 @@ src_path = Path(__file__).parent.parent.parent
 if str(src_path) not in sys.path:
     sys.path.insert(0, str(src_path))
 
-from utils.settings import GEMINI_API_KEY
-
-
-def create_stagehand_client() -> Stagehand:
-    """Create and initialize a Stagehand client."""
-    if not GEMINI_API_KEY:
-        raise ValueError("❌ GEMINI_API_KEY is required in environment")
-    
-    config = StagehandConfig(
-        env="LOCAL",
-        model_name="gemini/gemini-2.0-flash"
-    )
-    
-    return Stagehand(config)
+from utils.stagehand_client_manager import get_stagehand_client, get_stagehand_manager
 
 
 async def get_initialized_client() -> Stagehand:
-    """Get an initialized Stagehand client ready for use."""
-    client = create_stagehand_client()
-    await client.init()
-    return client
+    """
+    Get an initialized Stagehand client ready for use.
+    
+    This client comes from a managed pool with automatic key rotation.
+    Note: Do NOT call client.close() - the manager handles cleanup.
+    """
+    return await get_stagehand_client()
+
+
+def get_manager():
+    """Get the Stagehand client manager for advanced operations."""
+    return get_stagehand_manager()

@@ -1,7 +1,7 @@
 from models.source_article import SourceArticle
-from utils.settings import GEMINI_API_KEY
 from utils.embedding_config import get_config, EmbeddingConfig
 from utils.date_utils import safe_parse_date
+from utils.gemini_api_manager import get_gemini_manager
 from google.genai import types
 
 from datetime import datetime, timezone
@@ -15,7 +15,6 @@ from sentence_transformers import SentenceTransformer
 import torch
 from tqdm import tqdm
 import tiktoken
-from google import genai
 
 from dotenv import load_dotenv
 load_dotenv()
@@ -24,8 +23,8 @@ PINECONE_API_KEY = os.getenv("PINECONE_API_KEY")
 # Initialize Pinecone
 pc = Pinecone(PINECONE_API_KEY)
 
-# Initialize Gemini client
-client = genai.Client(api_key=GEMINI_API_KEY)
+# Get Gemini API manager for key rotation
+gemini_manager = get_gemini_manager()
 
 # Global variables for current configuration
 current_config: EmbeddingConfig = None
@@ -228,42 +227,20 @@ def get_embeddings(texts: List[str], batch_size: int = 32) -> List[List[float]]:
         embeddings = []
         for i in tqdm(range(0, len(texts), batch_size), desc="Generating Gemini embeddings"):
             batch = texts[i:i + batch_size]
-            batch_success = False
-            max_retries = 3
-
             
-            config = types.EmbedContentConfig(
-                task_type="RETRIEVAL_DOCUMENT",
-                output_dimensionality=768
-            )
-            
-            for retry_attempt in range(max_retries):
-                try:
-                    batch_embeddings = client.models.embed_content(
-                        model="gemini-embedding-001",
-                        contents=batch,
-                        config=config
-                    )
-                    embeddings.extend([e.values for e in batch_embeddings.embeddings])
-                    batch_success = True
-                    break
+            # Use the API manager which handles key rotation and retries automatically
+            try:
+                batch_embeddings = gemini_manager.embed_content(
+                    model="gemini-embedding-001",
+                    contents=batch,
+                    task_type="RETRIEVAL_DOCUMENT",
+                    output_dimensionality=768
+                )
+                embeddings.extend([e.values for e in batch_embeddings.embeddings])
                     
-                except Exception as e:
-                    if retry_attempt < max_retries - 1:
-                        wait_time = (retry_attempt + 1) * 30  # Exponential backoff: 30s, 60s, 90s
-                        print(f"⚠️ Batch {i//batch_size + 1} failed (attempt {retry_attempt + 1}/{max_retries}): {e}")
-                        print(f"⏳ Retrying in {wait_time} seconds...")
-                        time.sleep(wait_time)
-                    else:
-                        print(f"❌ Batch {i//batch_size + 1} failed after {max_retries} attempts: {e}")
-                        raise e
-            
-            if not batch_success:
-                raise Exception(f"Failed to process batch {i//batch_size + 1} after {max_retries} attempts")
-            
-            # Add small delay between batches to avoid rate limiting
-            if i + batch_size < len(texts):  # Don't delay after the last batch
-                time.sleep(0.5)  # 500ms delay between batches
+            except Exception as e:
+                print(f"❌ Batch {i//batch_size + 1} failed: {e}")
+                raise e
     else:
         # Use SentenceTransformer for other models
         embeddings = []

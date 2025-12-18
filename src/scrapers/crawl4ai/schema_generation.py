@@ -13,6 +13,8 @@ src_path = Path(__file__).parent.parent.parent
 if str(src_path) not in sys.path:
     sys.path.insert(0, str(src_path))
 
+from utils.gemini_api_manager import get_current_api_key
+
 # Load environment variables
 load_dotenv()
 
@@ -36,9 +38,11 @@ def generate_link_schema(page_html) -> dict:
         logger.error("crawl4ai not installed - schema generation unavailable")
         return None
     
-    api_key = os.getenv('GEMINI_API_KEY')
-    if not api_key:
-        logger.error("GEMINI_API_KEY not configured")
+    # Get current API key from the manager (supports key rotation)
+    try:
+        api_key = get_current_api_key()
+    except Exception as e:
+        logger.error(f"Failed to get Gemini API key: {e}")
         return None
     
     try:
@@ -46,7 +50,7 @@ def generate_link_schema(page_html) -> dict:
         schema = JsonCssExtractionStrategy.generate_schema(  
             html=page_html.html,  
             llm_config=LLMConfig(  
-                provider="gemini/gemini-2.0-flash",
+                provider="gemini/gemini-2.5-flash-lite",
                 api_token=api_key
             ),
             query="""
@@ -143,9 +147,11 @@ async def generate_article_schema(urls: List[str], crawler) -> dict:
         logger.error("crawl4ai not installed - schema generation unavailable")
         return None
     
-    api_key = os.getenv('GEMINI_API_KEY')
-    if not api_key:
-        logger.error("GEMINI_API_KEY not configured")
+    # Get current API key from the manager (supports key rotation)
+    try:
+        api_key = get_current_api_key()
+    except Exception as e:
+        logger.error(f"Failed to get Gemini API key: {e}")
         return None
     
     # Fetch HTML content from the provided URLs
@@ -162,7 +168,7 @@ async def generate_article_schema(urls: List[str], crawler) -> dict:
         schema = JsonCssExtractionStrategy.generate_schema(  
             html=combined_html,  
             llm_config=LLMConfig(  
-                provider="gemini/gemini-2.0-flash",
+                provider="gemini/gemini-2.5-flash-lite",
                 api_token=api_key
             ),
             verbose=True,
