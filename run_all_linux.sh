@@ -7,11 +7,11 @@ echo "Starting scraper pipeline..."
 echo ""
 
 echo "=== Running Stagehand scraper ==="
-python src/main/stagehand_main.py
+xvfb-run -a python src/main/stagehand_main.py
 echo ""
 
 echo "=== Running Custom scraper ==="
-python src/main/custom_main.py
+xvfb-run -a python src/main/custom_main.py
 echo ""
 
 echo "=== Running RSS scraper ==="
@@ -23,5 +23,3 @@ python src/main/crawl4ai_main.py
 echo ""
 
 echo "✓ All scrapers completed successfully!"
-
-

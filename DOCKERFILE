@@ -1,0 +1,21 @@
+# Using prebuilt microsoft playwright python image
+FROM mcr.microsoft.com/playwright/python:v1.49.0-noble
+
+# Set working directory
+WORKDIR /app
+
+# Copy and install requirements.txt
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# This will fail the build if something is missing, so you know BEFORE deploying.
+RUN python -m playwright install --with-deps chromium
+RUN crawl4ai-setup || true
+RUN crawl4ai-doctor || echo "Crawl4AI doctor failed, but continuing..."
+
+# Copy code base and make script executable
+COPY . .
+RUN chmod +x run_all_linux.sh
+
+# Run the shell script
+CMD ["./run_all_linux.sh"]

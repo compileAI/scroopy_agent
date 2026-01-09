@@ -1,64 +1,116 @@
 from models.stagehand import LinkList, Article
 from pydantic import ValidationError
 import hashlib
-import json
-import aiofiles
 import os
-from pathlib import Path
 from typing import Optional, Any, List, Tuple, Union
+from supabase import create_client, Client
 
-# Use the toplevel /cache directory for the cache file
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
-CACHE_DIR = PROJECT_ROOT / "cache"
-CACHE_DIR.mkdir(parents=True, exist_ok=True)
-CACHE_FILE = CACHE_DIR / "cache.json"
+# ---------- 1️⃣  Supabase Cache Backend -----------------------------------
 
-# ---------- 1️⃣  Enhanced cache utilities -----------------------------------
+def get_cache_client() -> Client:
+    """Get Supabase client for cache operations"""
+    supabase_url = os.getenv('SUPABASE_URL')
+    supabase_key = os.getenv('SUPABASE_SERVICE_ROLE_KEY')
+    
+    if not supabase_url or not supabase_key:
+        raise ValueError("SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY environment variables required")
+    
+    return create_client(supabase_url, supabase_key)
+
+
 def url_hash(url: str) -> str:
     """Create a clean hash for URL-based cache keys"""
     return hashlib.md5(url.encode()).hexdigest()[:12]
+
 
 def content_hash(content: str) -> str:
     """Create a hash of DOM content to detect changes"""
     return hashlib.md5(content.encode()).hexdigest()[:16]
 
+
+def _parse_cache_type(key: str) -> Tuple[str, str]:
+    """
+    Parse cache key to determine type and url_hash.
+    
+    Returns: (cache_type, url_hash)
+    """
+    parts = key.split("_")
+    
+    if key.startswith("dom_hash_"):
+        return ("dom_hash", parts[-1])
+    elif key.startswith("last_link_"):
+        return ("last_link", parts[-1])
+    elif key.startswith("link_extraction_"):
+        return ("link_extraction", parts[-1])
+    elif key.startswith("article_extraction_"):
+        return ("article_extraction", parts[-1])
+    else:
+        return ("other", "")
+
+
 async def get_cache(key: str) -> Optional[Any]:
     """Get cached value for a key, returns None if not found"""
     try:
-        async with aiofiles.open(str(CACHE_FILE), 'r') as f:
-            cache_content = await f.read()
-            parsed = json.loads(cache_content)
-            return parsed.get(key)
-    except (FileNotFoundError, json.JSONDecodeError):
+        supabase = get_cache_client()
+        result = supabase.table('stagehand_cache').select('value').eq('key', key).execute()
+        
+        if not result.data or len(result.data) == 0:
+            return None
+        
+        value = result.data[0]['value']
+        
+        # Unwrap simple values that were wrapped during migration
+        if isinstance(value, dict) and len(value) == 1 and 'value' in value:
+            return value['value']
+        
+        return value
+    
+    except Exception as e:
+        print(f"⚠️  Error reading from cache (key={key}): {e}")
         return None
+
 
 async def set_cache(key: str, value: Any) -> None:
     """Set a cached value for a key"""
     try:
-        async with aiofiles.open(str(CACHE_FILE), 'r') as f:
-            cache_content = await f.read()
-            parsed = json.loads(cache_content)
-    except (FileNotFoundError, json.JSONDecodeError):
-        parsed = {}
+        supabase = get_cache_client()
+        cache_type, url_hash = _parse_cache_type(key)
+        
+        # Wrap simple values for JSONB storage
+        if isinstance(value, (str, int, float, bool)):
+            jsonb_value = {"value": value}
+        elif isinstance(value, (dict, list)):
+            jsonb_value = value
+        elif value is None:
+            jsonb_value = {"value": None}
+        else:
+            jsonb_value = {"value": str(value)}
+        
+        row = {
+            "key": key,
+            "value": jsonb_value,
+            "cache_type": cache_type,
+            "url_hash": url_hash if url_hash else None
+        }
+        
+        # Use upsert to handle updates
+        supabase.table('stagehand_cache').upsert(row, on_conflict='key').execute()
     
-    parsed[key] = value
-    
-    async with aiofiles.open(str(CACHE_FILE), 'w') as f:
-        await f.write(json.dumps(parsed, default=str, indent=2))
+    except Exception as e:
+        print(f"⚠️  Error writing to cache (key={key}): {e}")
+        # Don't raise - cache failures shouldn't break the scraping
+
 
 async def clear_cache_key(key: str) -> None:
     """Remove a specific key from cache"""
     try:
-        async with aiofiles.open(str(CACHE_FILE), 'r') as f:
-            cache_content = await f.read()
-            parsed = json.loads(cache_content)
-    except (FileNotFoundError, json.JSONDecodeError):
-        return  # Nothing to clear
+        supabase = get_cache_client()
+        supabase.table('stagehand_cache').delete().eq('key', key).execute()
     
-    if key in parsed:
-        del parsed[key]
-        async with aiofiles.open(str(CACHE_FILE), 'w') as f:
-            await f.write(json.dumps(parsed, default=str, indent=2))
+    except Exception as e:
+        print(f"⚠️  Error clearing cache key (key={key}): {e}")
+        # Don't raise - cache failures shouldn't break the scraping
+
 
 # ---------- 2️⃣  DOM caching and change detection ---------------------------
 async def get_dom_content(page) -> str:
@@ -94,6 +146,7 @@ async def get_dom_content(page) -> str:
         print(f"⚠️  Error getting DOM content: {e}")
         return ""
 
+
 async def check_dom_changes(page, url: str) -> Tuple[bool, str]:
     """Check if DOM content has changed since last cache"""
     url_key = url_hash(url)
@@ -121,6 +174,7 @@ async def check_dom_changes(page, url: str) -> Tuple[bool, str]:
         print(f"📢 DOM changed for {url}, updating DOM hash")
         await set_cache(dom_hash_key, current_hash)
         return True, current_content
+
 
 # ---------- 3️⃣  Enhanced action caching -----------------------------------
 async def observe_with_cache(page, cache_key: str, prompt: str, max_retries: int = 2) -> List[Any]:
@@ -154,6 +208,7 @@ async def observe_with_cache(page, cache_key: str, prompt: str, max_retries: int
             else:
                 raise e
 
+
 async def act_with_cache(page, cache_key: str, prompt: str, self_heal: bool = True) -> None:
     """Execute page actions with caching and self-healing"""
     try:
@@ -174,6 +229,7 @@ async def act_with_cache(page, cache_key: str, prompt: str, self_heal: bool = Tr
             await page.act(prompt)
         else:
             raise e
+
 
 # ---------- 4️⃣  Enhanced extraction with DOM caching ----------------------
 # --- Update extract_link_with_cache to return (link, cache_hit) ---
@@ -243,6 +299,7 @@ async def extract_link_with_cache(page, list_page: str, max_retries: int = 2) ->
                 await clear_cache_key(cache_key)
             else:
                 raise e
+
 
 # --- Update extract_article_with_cache to return (article, cache_hit) ---
 async def extract_article_with_cache(page, url: str, max_retries: int = 2) -> tuple[Article, bool]:
