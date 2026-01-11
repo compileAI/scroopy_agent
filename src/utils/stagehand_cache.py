@@ -346,8 +346,8 @@ async def extract_article_with_cache(page, url: str, max_retries: int = 2) -> tu
             if not article.content or len(article.content) == 0:
                 raise ValidationError("Article content is empty")
             
-            # Cache the result
-            await set_cache(cache_key, article.model_dump())
+            # Cache the result - use mode='json' to serialize dates to strings
+            await set_cache(cache_key, article.model_dump(mode='json'))
             print(f"✅ Extracted and cached article: {article.title}")
             
             return article, False
